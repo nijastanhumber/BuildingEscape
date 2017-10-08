@@ -5,7 +5,10 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 
+#define OUT
 
 // Sets default values for this component's properties
 UOpenDoor::UOpenDoor()
@@ -13,8 +16,6 @@ UOpenDoor::UOpenDoor()
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
-	
-	Owner = GetOwner();
 }
 
 
@@ -23,21 +24,11 @@ void UOpenDoor::BeginPlay()
 {
 	Super::BeginPlay();
 
-	ActorThatOpens = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
-	if (ActorThatOpens == nullptr)
-		UE_LOG(LogTemp, Warning, TEXT("Actor is null!"));
-}
-
-void UOpenDoor::OpenDoor()
-{
-	// Set the door rotation
-	Owner->SetActorRotation(FRotator(0.0f, OpenAngle, 0.0f));
-}
-
-void UOpenDoor::CloseDoor()
-{
-	// Set the door rotation
-	Owner->SetActorRotation(FRotator(0.0f, 0.0f, 0.0f));
+	Owner = GetOwner();
+	if (!PressurePlate)
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s missing pressure plate"), *GetOwner()->GetName());
+	}
 }
 
 // Called every frame
@@ -47,15 +38,37 @@ void UOpenDoor::TickComponent(float DeltaTime, ELevelTick TickType, FActorCompon
 
 
 	// Poll the Trigger Volume
-	// If theActorThatOpengs is in the volume
-	if (PressurePlate->IsOverlappingActor(ActorThatOpens))
+	if (GetTotalMassOfActorsOfPlate() > WeightToOpen) // TODO make into parameter
 	{
-		OpenDoor();
-		LastDoorOpenTime = GetWorld()->GetTimeSeconds();
+		OnOpen.Broadcast();
+	}
+	else
+	{
+		OnClose.Broadcast();
+	}
+}
+
+float UOpenDoor::GetTotalMassOfActorsOfPlate()
+{
+	float TotalMass = 0.0f;
+
+	// Find all the overlapping actors
+	TArray<AActor*> OverlappingActors;
+	if (PressurePlate)
+	{
+		PressurePlate->GetOverlappingActors(OUT OverlappingActors);
+
+		// Iterate through the adding their masses
+		for (const auto *actor : OverlappingActors)
+		{
+			if (actor->FindComponentByClass<UStaticMeshComponent>()->Mobility == EComponentMobility::Movable)
+			{
+				TotalMass += actor->FindComponentByClass<UPrimitiveComponent>()->GetMass();
+				UE_LOG(LogTemp, Warning, TEXT("%s on pressure plate"), *actor->GetName());
+			}
+		}
 	}
 
-	// Check if it's time to close the door
-	if (GetWorld()->GetTimeSeconds() - LastDoorOpenTime >= DoorCloseDelay)
-		CloseDoor();
+	return TotalMass;
 }
 
